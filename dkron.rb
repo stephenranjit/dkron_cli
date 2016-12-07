@@ -3,10 +3,8 @@
 require 'thor'
 require 'json'
 require 'pp'
-
-# list all the cron servers here
-$dkron_servers = ["host1","host2","host3"]
 $whoami = `whoami`.chomp
+$config_path = "./dkron.config"
 
 class Dkron < Thor
 
@@ -21,7 +19,9 @@ class Dkron < Thor
         end
 
         def GetInitHost
+		$dkron_servers = read_config()["dkron_servers"]
                 $dkron_servers.each { |server|
+			puts "checking #{server}...\n"
                         if(ExecRestQuery(server,"XGET","") != "")
                                 $live_host = server
                                 break
@@ -33,12 +33,40 @@ class Dkron < Thor
                 puts "Init Host: #{$live_host}\n";
                 return $live_host
         end
-        }
-        desc "remove cronserver", "Force leave a cron server"
-        def remove(member)
+
+	def read_config()
+		if(! File.file?($config_path))
+			puts "Could not find #{$config_path}. Please configure the tool before use\n"
+			exit
+		end
+		dkron_config_json = File.read($config_path)
+                dkron_config_hash = JSON.parse(dkron_config_json)
+		return(dkron_config_hash)
+	end
+        
+	def toggle_state(job_name,state)
+		cron_details=getcron(job_name)
+                cron_details[:disabled]=state
+                init_host = GetInitHost()
+                puts ExecRestQuery(init_host,"XPOST","jobs -d '"+cron_details.to_json+"'")
+	end
+
+	}
+
+
+	desc "configure","setup config file with variables"
+	option :servers, :required => true, :type => :array, :aliases => :s
+	def configure()
+		setup_hash = {:dkron_servers => options[:servers]}
+		File.open($config_path, 'w') { |config| config.write(setup_hash.to_json) }
+	end
+	
+        desc "remove", "Force leave a cron server"
+	option :server, :required => true, :aliases => :s
+        def remove()
                 leader = getleader()
-                if(member != leader)
-                        puts ExecRestQuery(member,"XGET","leave")
+                if(options[:server] != leader)
+                        puts ExecRestQuery(options[:server],"XGET","leave")
                 else
                         puts "cannot forcibly remove leader: #{leader}\n"
                 end
@@ -50,33 +78,36 @@ class Dkron < Thor
                 puts ExecRestQuery(init_host,"XGET","members?pretty")
         end
 
-        desc "setcron <job_name> <time> <command> <run_on> [notify]","schedule the given job at the given time on the specified server"
+        desc "setcron","schedule the given job at the given time on the specified server\n"
         long_desc <<-LONGDESC
         dkron understands normal cron format. e.g."0 * * * * *"\n
         You may also schedule a job to execute at fixed intervals like this: "@every 1h30m10s"\n
         or at fixed intervals: "@at 2018-01-02T15:04:00Z"\n
         \n
         EXAMPLES:\n
-    > $ setcron "get_hostname" "0 * * * * *" "/bin/hostname" "rhel6" stephenranjit
+    > #{$0} setcron --job-name="get_hostname" --time="0 * * * * *" --command="/bin/hostname" --runon="rhel6" --notify=stephenranjit@co.com --parent=job1 --dependent=job2
         \n
-    > $ setcron "get_hostname" "@at 2018-01-02T15:04:00Z" "/bin/hostname" "rhel6" stephenranjit
+    > #{$0} setcron --job-name="get_hostname" --time="@at 2018-01-02T15:04:00Z" --command="/bin/hostname" --runon="rhel6" --notify=stephenranjit@co.com --parent=job1 --dependent=job2
         LONGDESC
-        def setcron(name,time,command,runon,notify=$whoami)
-
-                #construct hash
-                #add the correct email address
-                owner_email = "#{notify}\@company.com"
+	option :job_name, :required => true, :aliases => :j
+	option :time, :required => true, :aliases => :t
+	option :command, :required => true, :aliases => :c
+	option :runon, :required => true, :aliases => :r
+	option :dependent, :default => nil, :type => :array, :aliases => :d
+	option :parent, :aliases => :p
+	option :notify, :aliases => :n
+        def setcron()
                 job_hash = {
-                        :name => "#{name}",
-                        :command => "#{command}",
+                        :name => options[:job_name],
+                        :command => options[:command],
                         :shell => true,
-                        :schedule => "#{time}",
-                        :tags => {:type => "#{runon}:1"},
+                        :schedule => options[:time],
+                        :tags => {:type => "#{options[:runon]}:1"},
                         :retries => 0,
-                        :dependent_jobs => nil,
-                        :parent_job => "",
-                        :owner => "#{notify}",
-                        :owner_email => "#{owner_email}",
+                        :dependent_jobs => options[:dependent],
+                        :parent_job => options[:parent],
+                        :owner => options[:notify],
+                        :owner_email => options[:notify],
                         :disabled => false
                 }
 
@@ -84,17 +115,40 @@ class Dkron < Thor
                 puts ExecRestQuery(init_host,"XPOST","jobs -d '"+job_hash.to_json+"'")
         end
 
-        desc "delcron <job_name>","delete an existing cron job"
-        def delcron(name)
-                init_host = GetInitHost()
-                puts ExecRestQuery(init_host,"XDELETE","jobs/#{name}")
+	desc "disablecron","disable an existing cron job"
+        option :job_name, :required => true, :aliases => :j
+        def disablecron()
+        	toggle_state(options[:job_name],"true")
+	end
+
+	desc "enaablecron","enable an existing cron job"
+        option :job_name, :required => true, :aliases => :j
+        def enaablecron()
+                toggle_state(options[:job_name],"false")
         end
 
-        desc "getcron <job_name>","get all or specified cron jobs"
-        def getcron(name=nil)
+        desc "delcron","delete an existing cron job"
+	option :job_name, :type => :array, :required => true, :aliases => :j
+        def delcron()
                 init_host = GetInitHost()
-                name="/#{name}" if (name != nil)
-                response = ExecRestQuery(init_host,"XGET","jobs#{name}")
+		options[:job_name].each { |job_name|
+	                puts ExecRestQuery(init_host,"XDELETE","jobs/#{job_name}")
+		}
+        end
+
+        desc "getcron","get all or specified cron jobs"
+	option :job_name, :default => nil, :aliases => :j
+        def getcron(job_name=nil)
+                init_host = GetInitHost()
+		if(job_name != nil)
+			job_name="jobs/#{job_name}"
+			puts "job_name = #{job_name}\n"
+                elsif(options[:job_name] != nil)
+			job_name="jobs/#{options[:job_name]}"
+		else
+			job_name="jobs"
+		end 
+                response = ExecRestQuery(init_host,"XGET","#{job_name}")
                 if(response != "")
                         jobs_array = JSON.parse(response)
                 else
@@ -105,15 +159,30 @@ class Dkron < Thor
                 return jobs_array
         end
 
-        desc "runcron <job_name>","on demand build"
-        def runcron(name)
+	desc "getresult","get executions"
+	option :job_name, :required => true, :aliases => :j
+	def getresult
+		init_host = GetInitHost()
+		response = ExecRestQuery(init_host,"XGET","executions/#{options[:job_name]}")
+		if(response != "")
+                        results_array = JSON.parse(response)
+                else
+                        results_array = nil
+                end
+                pp results_array
+
+	end
+
+        desc "runcron","on demand build"
+	option :job_name, :required => true, :aliases => :j
+        def runcron()
                 init_host = GetInitHost()
-                response = ExecRestQuery(init_host,"XPOST","jobs/#{name}")
+                response = ExecRestQuery(init_host,"XPOST","jobs/#{options[:job_name]}")
                 if(response == '{}')
-                        if(getcron(name) == nil)
-                                puts "invalid response: job #{name} does not exist\n"
+                        if(getcron(options[:job_name]) == nil)
+                                puts "invalid response: job #{options[:job_name]} does not exist\n"
                         else
-                                puts "invalid response: job #{name} could not be run\n"
+                                puts "invalid response: job #{options[:job_name]} could not be run\n"
                         end
                 end
         end
