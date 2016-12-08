@@ -14,7 +14,10 @@ class Dkron < Thor
                 rest_cmd = "curl -m 2 -s -#{type} #{dkron_rest_url}"
                 puts "rest_cmd: #{rest_cmd}\n";
                 rest_cmd_response = `#{rest_cmd}`.chomp
-                puts "rest_cmd_response: #{rest_cmd_response}\n"
+		if((rest_cmd_response != {}) || (rest_cmd_response != "") || (rest_cmd_response != "null"))
+			rest_cmd_response = nil
+		end
+	        puts "rest_cmd_response: #{rest_cmd_response}\n"
                 return rest_cmd_response
         end
 
@@ -22,7 +25,7 @@ class Dkron < Thor
 		$dkron_servers = read_config()["dkron_servers"]
                 $dkron_servers.each { |server|
 			puts "checking #{server}...\n"
-                        if(ExecRestQuery(server,"XGET","") != "")
+                        if(ExecRestQuery(server,"XGET","") != nil)
                                 $live_host = server
                                 break
                         end
@@ -178,7 +181,7 @@ class Dkron < Thor
         def runcron()
                 init_host = GetInitHost()
                 response = ExecRestQuery(init_host,"XPOST","jobs/#{options[:job_name]}")
-                if(response == '{}')
+                if(response == nil)
                         if(getcron(options[:job_name]) == nil)
                                 puts "invalid response: job #{options[:job_name]} does not exist\n"
                         else
