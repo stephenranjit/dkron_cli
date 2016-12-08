@@ -149,7 +149,7 @@ class Dkron < Thor
 			job_name="jobs"
 		end 
                 response = ExecRestQuery(init_host,"XGET","#{job_name}")
-                if(response != "")
+                if(response != nil)
                         jobs_array = JSON.parse(response)
                 else
                         jobs_array = nil
@@ -164,7 +164,7 @@ class Dkron < Thor
 	def getresult
 		init_host = GetInitHost()
 		response = ExecRestQuery(init_host,"XGET","executions/#{options[:job_name]}")
-		if(response != "")
+		if(response != nil)
                         results_array = JSON.parse(response)
                 else
                         results_array = nil
