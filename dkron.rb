@@ -14,7 +14,7 @@ class Dkron < Thor
                 rest_cmd = "curl -m 2 -s -#{type} #{dkron_rest_url}"
                 puts "rest_cmd: #{rest_cmd}\n";
                 rest_cmd_response = `#{rest_cmd}`.chomp
-		if((rest_cmd_response != {}) || (rest_cmd_response != "") || (rest_cmd_response != "null"))
+		if((rest_cmd_response == {}) || (rest_cmd_response == "") || (rest_cmd_response == "null"))
 			rest_cmd_response = nil
 		end
 	        puts "rest_cmd_response: #{rest_cmd_response}\n"
