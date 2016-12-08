@@ -53,7 +53,30 @@ class Dkron < Thor
                 init_host = GetInitHost()
                 puts ExecRestQuery(init_host,"XPOST","jobs -d '"+cron_details.to_json+"'")
 	end
-
+	
+	def check_cron_format(format)
+		if(format =~ /^\@/)
+			if(["yearly" "monthly" "weekly" "daily" "hourly" "minutely" "at" "every" "midnight" "annually"].include? format)
+				puts <<-LONGSTRING
+incorrect format: \@ can only follow one of these keywords:
+yearly
+monthly
+weekly
+daily
+hourly
+minutely
+at
+every
+midnight
+annually
+LONGSTRING
+			end
+		elsif(format =~ /\d+\s+/)
+			if(format !~ /([\d\*]+\s?){6}/)
+				puts "incorrect format: please follow 6 space-separated fields\ne.g.: 0 * * * * *"
+			end
+		end
+	end
 	}
 
 
